@@ -12,8 +12,12 @@ class Item(BaseModel):
 app = FastAPI()
 
 
-@app.get("/items")
-async def create_items(item : Item):
+@app.get("/news/{topic}")
+async def create_items(
+        item : Item
+    ):
     print(f"received : {item.name}, {item.description} {item.price} {item.tax}")
     return item
+
+
     
