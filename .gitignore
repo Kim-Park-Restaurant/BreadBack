@@ -2,3 +2,4 @@
 .env
 
 data/한국어_연속적_대화_데이터셋.xlsx
+data/final_df.csv
