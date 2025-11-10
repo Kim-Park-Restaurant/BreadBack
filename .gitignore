@@ -2,7 +2,7 @@
 .env
 
 data/한국어_연속적_대화_데이터셋.xlsx
-data/without_hugggingface.csv
+data/without_huggingface.csv
 data/final_df.csv
 
 models/finetuned-bert/*
