@@ -7,5 +7,5 @@ data/nsmc_and_huggingface.csv
 data/what_the.csv
 data/final_df.csv
 
-models/finetuned-bert/*
-models/finetuned-kcbert/*
+
+models/*
