@@ -3,6 +3,9 @@
 
 data/한국어_연속적_대화_데이터셋.xlsx
 data/without_huggingface.csv
+data/nsmc_and_huggingface.csv
+data/what_the.csv
 data/final_df.csv
 
 models/finetuned-bert/*
+models/finetuned-kcbert/*

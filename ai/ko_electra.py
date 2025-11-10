@@ -8,22 +8,16 @@ from transformers import (
 from datasets import DatasetDict
 from sklearn.metrics import accuracy_score, f1_score
 from data.preprocess_data import create_datadict_from_csv
-from kobert_tokenizer.tokenization_kobert import KoBertTokenizer
 
-import sys
-import os
 import torch
 import numpy as np
-
-
-sys.path.append("./kobert_tokenizer")
 
 
 def preprocess_function(examples, tokenizer):
     return tokenizer(
         examples["text"],  # 독립변수: 입력 텍스트
         truncation=True,
-        padding=False,
+        padding=True,
         max_length=256
     )
 
@@ -42,21 +36,21 @@ def compute_metrics(eval_pred):
 
 
 def fine_tune_korean_bert(
-    model_name: str = "monologg/kobert",
-    csv_path: str = "./data/without_huggingface.csv",
+    model_name: str = "monologg/koelectra-base-v3-discriminator",
+    csv_path: str = "./data/what_the.csv",
     output_dir: str = "./models/finetuned-bert",
-    num_epochs: int = 4,
+    num_epochs: int = 3,
     batch_size: int = 8,
     learning_rate: float = 1e-5
 ):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"training on {device}")
     
-    dataset_dict = create_datadict_from_csv(csv_path, train_ratio=0.8, sample_ratio=0.3)
+    dataset_dict = create_datadict_from_csv(csv_path, train_ratio=0.8, sample_ratio=1.0)
     print(f"Train dataset: {len(dataset_dict['train'])}")
     print(f"Test dataset: {len(dataset_dict['test'])}")
     
-    tokenizer = KoBertTokenizer(vocab_file="./kobert_tokenizer/tokenizer_78b3253a26.model", vocab_txt="./kobert_tokenizer/vocab.txt")
-    # tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
     model.to(device)
 
@@ -109,14 +103,14 @@ def fine_tune_korean_bert(
 
 
 if __name__ == "__main__":
-    model_name = "monologg/kobert"
+    model_name = "monologg/koelectra-base-v3-discriminator"
     
     fine_tune_korean_bert(
         model_name=model_name,
-        csv_path="./data/without_huggingface.csv",
+        csv_path="./data/what_the.csv",
         output_dir="./models/finetuned-bert",
-        num_epochs=4,
-        batch_size=16,
+        num_epochs=3,
+        batch_size=8,
         learning_rate=1e-5
     )
 
