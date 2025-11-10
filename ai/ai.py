@@ -1,5 +1,3 @@
-import torch
-import numpy as np
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
@@ -10,16 +8,22 @@ from transformers import (
 from datasets import DatasetDict
 from sklearn.metrics import accuracy_score, f1_score
 from data.preprocess_data import create_datadict_from_csv
+from kobert_tokenizer.tokenization_kobert import KoBertTokenizer
 
 import sys
 import os
+import torch
+import numpy as np
+
+
+sys.path.append("./kobert_tokenizer")
 
 
 def preprocess_function(examples, tokenizer):
     return tokenizer(
         examples["text"],  # 독립변수: 입력 텍스트
         truncation=True,
-        padding=True,
+        padding=False,
         max_length=256
     )
 
@@ -39,19 +43,20 @@ def compute_metrics(eval_pred):
 
 def fine_tune_korean_bert(
     model_name: str = "monologg/kobert",
-    csv_path: str = "./data/final_df.csv",
+    csv_path: str = "./data/without_huggingface.csv",
     output_dir: str = "./models/finetuned-bert",
-    num_epochs: int = 3,
-    batch_size: int = 4,
-    learning_rate: float = 2e-5
+    num_epochs: int = 4,
+    batch_size: int = 8,
+    learning_rate: float = 1e-5
 ):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     
-    dataset_dict = create_datadict_from_csv(csv_path, train_ratio=0.8, sample_ratio=0.5)
+    dataset_dict = create_datadict_from_csv(csv_path, train_ratio=0.8, sample_ratio=0.3)
     print(f"Train dataset: {len(dataset_dict['train'])}")
     print(f"Test dataset: {len(dataset_dict['test'])}")
     
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    tokenizer = KoBertTokenizer(vocab_file="./kobert_tokenizer/tokenizer_78b3253a26.model", vocab_txt="./kobert_tokenizer/vocab.txt")
+    # tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
     model.to(device)
 
@@ -60,13 +65,12 @@ def fine_tune_korean_bert(
     columns_to_remove = [col for col in dataset_dict["train"].column_names if col != "labels"]
     print(columns_to_remove)
 
-
     tokenized_datasets = dataset_dict.map(
         lambda examples: preprocess_function(examples, tokenizer),
         batched=True,
-        remove_columns=columns_to_remove
+        
     )
-    
+    tokenized_datasets = tokenized_datasets.remove_columns(columns_to_remove)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     
     training_args = TrainingArguments(
@@ -76,13 +80,14 @@ def fine_tune_korean_bert(
         per_device_eval_batch_size=batch_size,
         learning_rate=learning_rate,
         weight_decay=0.01,
+        max_grad_norm=0.5,
+        fp16=False,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="eval_accuracy"
     )
-    
-    # Trainer 설정
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -96,7 +101,6 @@ def fine_tune_korean_bert(
     trainer.train()
 
     trainer.save_model()
-    tokenizer.save_pretrained(output_dir)
     
     eval_results = trainer.evaluate()
     print(f"평가 결과: {eval_results}")
@@ -109,10 +113,10 @@ if __name__ == "__main__":
     
     fine_tune_korean_bert(
         model_name=model_name,
-        csv_path="./data/final_df.csv",
+        csv_path="./data/without_huggingface.csv",
         output_dir="./models/finetuned-bert",
-        num_epochs=3,
-        batch_size=4,
-        learning_rate=2e-5
+        num_epochs=4,
+        batch_size=16,
+        learning_rate=1e-5
     )
 
