@@ -136,12 +136,12 @@ if __name__ == "__main__":
     
     fine_tune_kcbert_full(
         model_name=model_name,
-        csv_path="./data/what_the.csv",
+        csv_path="./data/nsmc_and_huggingface.csv",
         output_dir="./models/finetuned-kcbert",
         num_epochs=3,
         batch_size=8,
         learning_rate=2e-5,
         train_ratio=0.8,
-        sample_ratio=1.0
+        sample_ratio=0.7
     )
 

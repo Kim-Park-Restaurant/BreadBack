@@ -37,7 +37,7 @@ def compute_metrics(eval_pred):
 
 def fine_tune_korean_bert(
     model_name: str = "monologg/koelectra-base-v3-discriminator",
-    csv_path: str = "./data/what_the.csv",
+    csv_path: str = "./data/nsmc_and_huggingface.csv",
     output_dir: str = "./models/finetuned-bert",
     num_epochs: int = 3,
     batch_size: int = 8,
@@ -46,7 +46,7 @@ def fine_tune_korean_bert(
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"training on {device}")
     
-    dataset_dict = create_datadict_from_csv(csv_path, train_ratio=0.8, sample_ratio=1.0)
+    dataset_dict = create_datadict_from_csv(csv_path, train_ratio=0.8, sample_ratio = 0.5)
     print(f"Train dataset: {len(dataset_dict['train'])}")
     print(f"Test dataset: {len(dataset_dict['test'])}")
     
@@ -74,7 +74,7 @@ def fine_tune_korean_bert(
         per_device_eval_batch_size=batch_size,
         learning_rate=learning_rate,
         weight_decay=0.01,
-        max_grad_norm=0.5,
+        max_grad_norm=1.0,
         fp16=False,
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     
     fine_tune_korean_bert(
         model_name=model_name,
-        csv_path="./data/what_the.csv",
+        csv_path="./data/nsmc_and_huggingface.csv",
         output_dir="./models/finetuned-bert",
         num_epochs=3,
         batch_size=8,
