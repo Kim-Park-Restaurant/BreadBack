@@ -4,14 +4,10 @@ import torch
 
 
 test_texts = [
-    "와 진짜 이거 미쳤다 ㅋㅋㅋㅋ 완전 대박!",
-    "아니 진심으로 짜증 나 죽겠네 ㅠㅠ 뭐야 이거",
-    "오늘 본 영화 개쩔었음… 눈물 펑펑 ㅠㅠ",
-    "헐 왜 이렇게 별로야… 시간 완전 낭비했음",
-    "맛집 후기 보고 갔는데 개맛있음 ㅋㅋㅋ 완전 감동!"
+    "와 진짜 이거 미쳤다 ㅋㅋㅋㅋ 완전 대박!"
 ]
 
-def test_ko_bert(model_path: str = "./models/finetuned-kcbert/checkpoint-684"):
+def test_ko_bert(model_path: str = "./models/finetuned-kcbert/checkpoint-5637"):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"사용 장치: {device}")
     print(f"모델 로드 중: {model_path}\n")
@@ -34,7 +30,7 @@ def test_ko_bert(model_path: str = "./models/finetuned-kcbert/checkpoint-684"):
         print(f"결과: {result}")
 
 
-def test_ko_electra(model_path: str = "./models/finetuned-bert/checkpoint-3062"):
+def test_ko_electra(model_path: str = "./models/finetuned-bert/checkpoint-6124"):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"사용 장치: {device}")
     print(f"모델 로드 중: {model_path}\n")
