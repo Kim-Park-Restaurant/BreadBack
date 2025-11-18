@@ -31,12 +31,14 @@ def get_nsmc_dataset():
         pd.DataFrame(nsmc["train"]),
         pd.DataFrame(nsmc["test"])
     ])
-
+    df_nsmc.dropna(inplace=True)
     df_nsmc = df_nsmc.rename(columns={"document": "text", "label": "sentiment"})
     df_nsmc = df_nsmc.drop(["Unnamed: 0", "id"], axis = 1)
 
     df_nsmc = df_nsmc.sample(frac = 0.1, random_state = 42)
+    df_nsmc.reset_index(drop=True, inplace=True)
     df_nsmc = Dataset.from_pandas(df_nsmc)
+
     return df_nsmc
 
 
@@ -44,6 +46,7 @@ def get_komultitext_dataset():
     df_hug_dc = load_dataset("Dasool/KoMultiText")["train"].to_pandas()
     df_hug_dc.rename(columns = {"comment": "text", "preference": "sentiment"}, inplace = True)
 
+    df_hug_dc.dropna(inplace=True)
     df_hug_dc.drop(columns = ['profanity', 'gender', 'politics', 'nation',
        'race', 'region', 'generation', 'social_hierarchy', 'appearance',
        'others'], axis = 1, inplace = True)
@@ -64,9 +67,6 @@ def get_komultitext_dataset():
     if pref_0_count > pref_1_count:
         df_pref_0_sampled = df_pref_0.sample(n=pref_1_count, random_state=42)
         df_hug_dc = pd.concat([df_pref_0_sampled, df_pref_1], ignore_index=True)
-
-    print(len(df_hug_dc[df_hug_dc["sentiment"] == 0]))
-    print(len(df_hug_dc[df_hug_dc["sentiment"] == 1]))
     
     df_hug_dc["text"] = df_hug_dc["text"].apply(clean_text)
 
