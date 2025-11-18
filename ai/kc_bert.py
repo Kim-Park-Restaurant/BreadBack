@@ -40,10 +40,14 @@ def get_tokenized_datasets(tokenizer):
         fn_kwargs={"tokenizer": tokenizer, "max_length": 128},
         remove_columns=["text", "sentiment"]
     )
-    train_dataset = tokenized_datasets.train_test_split(test_size=0.2)
+
+    train_val_split = tokenized_datasets.train_test_split(test_size=0.3, seed=42)
+    val_test_split = train_val_split["test"].train_test_split(test_size=0.5, seed=42)
+
     tokenized_datasets = DatasetDict({
-        "train": train_dataset["train"],
-        "test": train_dataset["test"]
+        "train": train_val_split["train"],
+        "validation": val_test_split["train"],
+        "test": val_test_split["test"]
     })
     print(tokenized_datasets)
 
@@ -52,10 +56,10 @@ def get_tokenized_datasets(tokenizer):
 
 def hp_space(trial):
     return {
-        "learning_rate" : trial.suggest_float("learning_rate", 5e-6, 1e-5, log = True),
-        "per_device_train_batch_size" : trial.suggest_categorical("per_device_train_batch_size", [8, 16, 32]),
-        "per_device_eval_batch_size" : trial.suggest_categorical("per_device_eval_batch_size", [8, 16, 32]),
-        "num_train_epochs" : trial.suggest_int("num_train_epochs", 1, 10),
+        "learning_rate" : trial.suggest_float("learning_rate", 1e-6, 1e-4, log = True),
+        "per_device_train_batch_size" : trial.suggest_categorical("per_device_train_batch_size", [8, 16]),
+        "per_device_eval_batch_size" : trial.suggest_categorical("per_device_eval_batch_size", [8, 16]),
+        "num_train_epochs" : trial.suggest_int("num_train_epochs", 1, 8),
         "weight_decay" : trial.suggest_float("weight_decay", 0.3, 0.5),
         "warmup_ratio" : trial.suggest_float("warmup_ratio", 0.0, 0.2),
         "max_grad_norm" : trial.suggest_float("max_grad_norm", 0.5, 1.0)
@@ -79,7 +83,7 @@ def search_best_hyperparameters_kcbert_nsmc(
         return model
 
     training_args = TrainingArguments(
-        output_dir="./models/kc-bert-nsmc",
+        output_dir="./models/kc-bert-nsmc-hp-search",
         num_train_epochs=num_epochs,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
@@ -98,9 +102,8 @@ def search_best_hyperparameters_kcbert_nsmc(
         model_init=model_init,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
+        eval_dataset=tokenized_datasets["validation"],
         data_collator=data_collator,
-        tokenizer=tokenizer,
         compute_metrics=compute_metrics,
     )
 
@@ -131,15 +134,64 @@ def compute_metrics(eval_pred):
     }
 
 
+def train_kcbert_nsmc(model_name, best_run):
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+    tokenized_datasets = get_tokenized_datasets(tokenizer)
+
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
+    model.to(device)
+
+    training_args = TrainingArguments(
+        output_dir="./models/kc-bert-nsmc-final",
+        num_train_epochs=best_run.hyperparameters["num_train_epochs"],
+        per_device_train_batch_size=best_run.hyperparameters["per_device_train_batch_size"],
+        per_device_eval_batch_size=best_run.hyperparameters["per_device_eval_batch_size"],
+        learning_rate=best_run.hyperparameters["learning_rate"],
+        bf16=True,
+        warmup_ratio=best_run.hyperparameters["warmup_ratio"],
+        weight_decay=best_run.hyperparameters["weight_decay"],
+        max_grad_norm=best_run.hyperparameters["max_grad_norm"],
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_accuracy"
+    )   
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_datasets["train"],
+        eval_dataset=tokenized_datasets["validation"],
+        data_collator=data_collator,
+        compute_metrics=compute_metrics
+    )   
+    trainer.train()
+
+    trainer.save_model()
+
+    # validation 데이터셋 평가
+    eval_results = trainer.evaluate()
+    print(f"Validation 평가 결과: {eval_results}")
+
+    # test 데이터셋 평가
+    test_results = trainer.evaluate(eval_dataset=tokenized_datasets["test"])
+    print(f"Test 평가 결과: {test_results}")
+
+    return trainer
+
+
 if __name__ == "__main__":
     model_name = "beomi/kcbert-base"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-    bset_run = search_best_hyperparameters_kcbert_nsmc(
+    best_run = search_best_hyperparameters_kcbert_nsmc(
         model_name=model_name,
         num_epochs=3,
         batch_size=8,
         learning_rate=2e-5
     )
 
-    print(bset_run)
+    print(f"최적 하이퍼파라미터: {best_run.hyperparameters}")
+    print(f"최적 성능: {best_run.objective}")
+
+    trainer = train_kcbert_nsmc(model_name, best_run)
+    print(trainer)
