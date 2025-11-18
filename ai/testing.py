@@ -4,11 +4,12 @@ import torch
 
 
 test_texts = [
-    "와 진짜 이거 미쳤다 ㅋㅋㅋㅋ 완전 대박!"
+    "와 진짜 이거 미쳤다 ㅋㅋㅋㅋ 완전 대박!",
+    "진짜 개재미없네"
 ]
 
-def test_ko_bert(model_path: str = "./models/finetuned-kcbert/checkpoint-5637"):
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+def test_ko_bert(model_path: str = "./models/kc-bert-nsmc-final/checkpoint-440"):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"사용 장치: {device}")
     print(f"모델 로드 중: {model_path}\n")
     
@@ -60,10 +61,10 @@ def test_both_models():
     print("="*60)
     test_ko_bert()
     
-    print("\n\n" + "="*60)
-    print("KoELECTRA 모델 테스트")
-    print("="*60)
-    test_ko_electra()
+    # print("\n\n" + "="*60)
+    # print("KoELECTRA 모델 테스트")
+    # print("="*60)
+    # test_ko_electra()
 
 
 if __name__ == "__main__":

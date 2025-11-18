@@ -9,3 +9,5 @@ data/final_df.csv
 
 
 models/*
+
+__pycache__/*
