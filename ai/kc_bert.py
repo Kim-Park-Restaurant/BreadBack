@@ -58,6 +58,7 @@ if __name__ == "__main__":
     model_name = "beomi/kcbert-base"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
+
     test = kc_bert_nsmc(
         model_name=model_name,
         num_epochs=3,
