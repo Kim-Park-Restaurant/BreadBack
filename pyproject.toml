@@ -3,17 +3,10 @@ name = "breadback"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
-    "accelerate>=1.11.0",
     "datasets>=4.4.1",
-    "fastapi>=0.121.0",
     "pandas>=2.3.3",
-    "protobuf>=6.33.0",
-    "pydantic>=2.12.4",
-    "scikit-learn>=1.7.2",
-    "sentencepiece>=0.1.99",
     "torch>=2.9.0",
     "transformers>=4.57.1",
-    "uvicorn>=0.38.0",
 ]
