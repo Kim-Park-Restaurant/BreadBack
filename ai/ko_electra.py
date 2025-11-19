@@ -6,20 +6,18 @@ from transformers import (
     DataCollatorWithPadding
 )
 from datasets import DatasetDict
-from sklearn.metrics import accuracy_score, f1_score
-from data.preprocess_data import create_datadict_from_csv
+from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score
+from data.preprocess_data import get_nsmc_dataset, get_komultitext_dataset
+from ai.kc_bert import get_tokenized_datasets, hp_space
 
 import torch
 import numpy as np
+import os
 
 
-def preprocess_function(examples, tokenizer):
-    return tokenizer(
-        examples["text"],  # 독립변수: 입력 텍스트
-        truncation=True,
-        padding=True,
-        max_length=256
-    )
+os.environ["WANDB_PROJECT"] = "finetuning"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"device: {device}")
 
 
 def compute_metrics(eval_pred):
@@ -28,89 +26,133 @@ def compute_metrics(eval_pred):
     
     accuracy = accuracy_score(labels, predictions)
     f1 = f1_score(labels, predictions, average='weighted')
-    
+    recall = recall_score(labels, predictions, average='weighted')
+    precision = precision_score(labels, predictions, average='weighted')
+
     return {
         'accuracy': accuracy,
-        'f1': f1
+        'f1': f1,
+        'recall': recall,
+        'precision': precision
     }
 
 
-def fine_tune_korean_bert(
-    model_name: str = "monologg/koelectra-base-v3-discriminator",
-    csv_path: str = "./data/nsmc_and_huggingface.csv",
-    output_dir: str = "./models/finetuned-bert",
-    num_epochs: int = 3,
-    batch_size: int = 8,
-    learning_rate: float = 1e-5
+def search_best_hyperparameters(
+    model_name,
+    num_epochs,
+    batch_size,
+    learning_rate,
+    dataset,
+    output_dir
 ):
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"training on {device}")
-    
-    dataset_dict = create_datadict_from_csv(csv_path, train_ratio=0.8, sample_ratio = 0.5)
-    print(f"Train dataset: {len(dataset_dict['train'])}")
-    print(f"Test dataset: {len(dataset_dict['test'])}")
-    
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
-    model.to(device)
-
-    dataset_dict = dataset_dict.rename_column("sentiment", "labels")
-    
-    columns_to_remove = [col for col in dataset_dict["train"].column_names if col != "labels"]
-    print(columns_to_remove)
-
-    tokenized_datasets = dataset_dict.map(
-        lambda examples: preprocess_function(examples, tokenizer),
-        batched=True,
-        
-    )
-    tokenized_datasets = tokenized_datasets.remove_columns(columns_to_remove)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    
+    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
+
+    def model_init():
+        model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2, trust_remote_code=True)
+        model.to(device)
+        return model
+
+
     training_args = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=num_epochs,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         learning_rate=learning_rate,
+        bf16=True,
+        warmup_ratio=0.1,
         weight_decay=0.01,
         max_grad_norm=1.0,
-        fp16=False,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
-        metric_for_best_model="eval_accuracy"
+        metric_for_best_model="eval_accuracy",
+        report_to="wandb"  # 하이퍼파라미터 검색 과정도 wandb에 기록
+    )
+
+    trainer = Trainer(
+        model_init=model_init,
+        args=training_args,
+        train_dataset=tokenized_datasets["train"],
+        eval_dataset=tokenized_datasets["validation"],
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+    )
+
+    best_run = trainer.hyperparameter_search(
+        direction = "maximize",
+        hp_space = hp_space,
+        n_trials = 20,
+        compute_objective = lambda metrics: metrics["eval_accuracy"]
+    )
+
+    return best_run
+
+
+def train_ko_electra(model_name, best_run, output_dir, dataset):
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2, trust_remote_code=True)
+    model.to(device)
+
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        num_train_epochs=best_run.hyperparameters["num_train_epochs"],
+        per_device_train_batch_size=best_run.hyperparameters["per_device_train_batch_size"],
+        per_device_eval_batch_size=best_run.hyperparameters["per_device_eval_batch_size"],
+        learning_rate=best_run.hyperparameters["learning_rate"],
+        bf16=True,
+        warmup_ratio=best_run.hyperparameters["warmup_ratio"],
+        weight_decay=best_run.hyperparameters["weight_decay"],
+        max_grad_norm=best_run.hyperparameters["max_grad_norm"],
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_accuracy",
+        report_to="wandb"  # 최종 학습 과정도 wandb에 기록
     )
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
+        eval_dataset=tokenized_datasets["validation"],
         data_collator=data_collator,
-        tokenizer=tokenizer,
-        compute_metrics=compute_metrics,
+        compute_metrics=compute_metrics
     )
-    
-    trainer.train()
 
+    trainer.train()
     trainer.save_model()
-    
+
     eval_results = trainer.evaluate()
-    print(f"평가 결과: {eval_results}")
-    
-    return trainer, model, tokenizer
+    print(f"Validation 평가 결과: {eval_results}")
+
+    test_results = trainer.evaluate(eval_dataset=tokenized_datasets["test"])
+    print(f"Test 평가 결과: {test_results}")
 
 
 if __name__ == "__main__":
     model_name = "monologg/koelectra-base-v3-discriminator"
-    
-    fine_tune_korean_bert(
+    default_epochs = 3
+    default_batch_size = 8
+    default_learning_rate = 1e-5
+
+    nsmc_dataset = get_nsmc_dataset()
+    komultitext_dataset = get_komultitext_dataset()
+
+    best_run_nsmc = search_best_hyperparameters(
         model_name=model_name,
-        csv_path="./data/nsmc_and_huggingface.csv",
-        output_dir="./models/finetuned-bert",
-        num_epochs=3,
-        batch_size=8,
-        learning_rate=1e-5
+        num_epochs=default_epochs,
+        batch_size=default_batch_size,
+        learning_rate=default_learning_rate,
+        dataset=nsmc_dataset,
+        output_dir="./models/ko-electra-nsmc-hp-search"
     )
+
+    train_ko_electra(model_name, best_run_nsmc, output_dir="./models/ko-electra-nsmc-final", dataset=nsmc_dataset)
+
+
 
