@@ -6,7 +6,7 @@ data/without_huggingface.csv
 data/nsmc_and_huggingface.csv
 data/what_the.csv
 data/final_df.csv
-
+wandb/*
 
 models/*
 

@@ -32,13 +32,12 @@ def preprocess_function(examples, tokenizer, max_length=512):
     return tokenized_text
 
 
-def get_tokenized_datasets(tokenizer):
-    df_nsmc = get_nsmc_dataset()
-    tokenized_datasets = df_nsmc.map(
+def get_tokenized_datasets(tokenizer, dataset):
+    tokenized_datasets = dataset.map(
         preprocess_function, 
         batched=True,
         fn_kwargs={"tokenizer": tokenizer, "max_length": 128},
-        remove_columns=["text", "sentiment"]
+        remove_columns=dataset.column_names
     )
 
     train_val_split = tokenized_datasets.train_test_split(test_size=0.3, seed=42)
@@ -56,7 +55,7 @@ def get_tokenized_datasets(tokenizer):
 
 def hp_space(trial):
     return {
-        "learning_rate" : trial.suggest_float("learning_rate", 1e-6, 1e-4, log = True),
+        "learning_rate" : trial.suggest_float("learning_rate", 1e-6, 1e-5, log = True),
         "per_device_train_batch_size" : trial.suggest_categorical("per_device_train_batch_size", [8, 16]),
         "per_device_eval_batch_size" : trial.suggest_categorical("per_device_eval_batch_size", [8, 16]),
         "num_train_epochs" : trial.suggest_int("num_train_epochs", 1, 8),
@@ -66,15 +65,17 @@ def hp_space(trial):
     }
 
 
-def search_best_hyperparameters_kcbert_nsmc(
+def search_best_hyperparameters(
     model_name,
     num_epochs,
     batch_size,
     learning_rate,
+    dataset,
+    output_dir
 ):
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained("beomi/kcbert-base")
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    tokenized_datasets = get_tokenized_datasets(tokenizer)
+    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
 
 
     def model_init():
@@ -83,7 +84,7 @@ def search_best_hyperparameters_kcbert_nsmc(
         return model
 
     training_args = TrainingArguments(
-        output_dir="./models/kc-bert-nsmc-hp-search",
+        output_dir=output_dir,
         num_train_epochs=num_epochs,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
@@ -134,16 +135,16 @@ def compute_metrics(eval_pred):
     }
 
 
-def train_kcbert_nsmc(model_name, best_run):
+def train_kcbert(model_name, best_run, output_dir, dataset):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    tokenized_datasets = get_tokenized_datasets(tokenizer)
+    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
 
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
     model.to(device)
 
     training_args = TrainingArguments(
-        output_dir="./models/kc-bert-nsmc-final",
+        output_dir=output_dir,
         num_train_epochs=best_run.hyperparameters["num_train_epochs"],
         per_device_train_batch_size=best_run.hyperparameters["per_device_train_batch_size"],
         per_device_eval_batch_size=best_run.hyperparameters["per_device_eval_batch_size"],
@@ -182,16 +183,39 @@ def train_kcbert_nsmc(model_name, best_run):
 
 
 if __name__ == "__main__":
-    model_name = "beomi/kcbert-base"
-    best_run = search_best_hyperparameters_kcbert_nsmc(
-        model_name=model_name,
-        num_epochs=3,
-        batch_size=8,
-        learning_rate=2e-5
+    default_model_name = "beomi/kcbert-base"
+    nsmc_dataset = get_nsmc_dataset()
+    komultitext_dataset = get_komultitext_dataset()
+
+    default_num_epochs = 3
+    default_batch_size = 8
+    default_learning_rate = 2e-5
+
+    # best_run_nsmc = search_best_hyperparameters(
+    #     model_name=default_model_name,
+    #     num_epochs=default_num_epochs,
+    #     batch_size=default_batch_size,
+    #     learning_rate=default_learning_rate,
+    #     dataset=nsmc_dataset,
+    #     output_dir="./models/kc-bert-nsmc-hp-search"
+    # )
+
+    # print(f"최적 하이퍼파라미터: {best_run_nsmc.hyperparameters}")
+    # print(f"최적 성능: {best_run_nsmc.objective}")
+
+    # trainer = train_kcbert(model_name, best_run_nsmc, output_dir="./models/kc-bert-nsmc-final", dataset=nsmc_dataset)
+    
+    fine_tune_model_name = "./models/kc-bert-nsmc-final/checkpoint-440"
+    best_run_komultitext = search_best_hyperparameters(
+        model_name=fine_tune_model_name,
+        num_epochs=default_num_epochs,
+        batch_size=default_batch_size,
+        learning_rate=default_learning_rate,
+        dataset=komultitext_dataset,
+        output_dir="./models/kc-bert-komultitext-hp-search"
     )
 
-    print(f"최적 하이퍼파라미터: {best_run.hyperparameters}")
-    print(f"최적 성능: {best_run.objective}")
+    print(f"최적 하이퍼파라미터: {best_run_komultitext.hyperparameters}")
+    print(f"최적 성능: {best_run_komultitext.objective}")
 
-    trainer = train_kcbert_nsmc(model_name, best_run)
-    print(trainer)
+    trainer = train_kcbert(fine_tune_model_name, best_run_komultitext, output_dir="./models/kc-bert-komultitext-final", dataset=komultitext_dataset)
