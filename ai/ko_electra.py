@@ -143,16 +143,27 @@ if __name__ == "__main__":
     nsmc_dataset = get_nsmc_dataset()
     komultitext_dataset = get_komultitext_dataset()
 
-    best_run_nsmc = search_best_hyperparameters(
+    # best_run_nsmc = search_best_hyperparameters(
+    #     model_name=model_name,
+    #     num_epochs=default_epochs,
+    #     batch_size=default_batch_size,
+    #     learning_rate=default_learning_rate,
+    #     dataset=nsmc_dataset,
+    #     output_dir="./models/ko-electra-nsmc-hp-search"
+    # )
+
+    # train_ko_electra(model_name, best_run_nsmc, output_dir="./models/ko-electra-nsmc-final", dataset=nsmc_dataset)
+
+    model_name = "./models/ko-electra-nsmc-final/checkpoint-1752"
+    best_run_komultitext = search_best_hyperparameters(
         model_name=model_name,
         num_epochs=default_epochs,
         batch_size=default_batch_size,
         learning_rate=default_learning_rate,
-        dataset=nsmc_dataset,
-        output_dir="./models/ko-electra-nsmc-hp-search"
+        dataset=komultitext_dataset,
+        output_dir="./models/ko-electra-komultitext-hp-search"
     )
 
-    train_ko_electra(model_name, best_run_nsmc, output_dir="./models/ko-electra-nsmc-final", dataset=nsmc_dataset)
-
+    train_ko_electra(model_name, best_run_komultitext, output_dir="./models/ko-electra-komultitext-final", dataset=komultitext_dataset)
 
 
