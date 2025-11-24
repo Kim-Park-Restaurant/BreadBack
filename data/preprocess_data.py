@@ -17,7 +17,7 @@ url_pattern = re.compile(
 
 def clean_text(text):
     text = pattern.sub(' ', text)
-    text = emoji.replace_emoji(text, replace='')
+    # text = emoji.replace_emoji(text, replace='')
     text = url_pattern.sub('', text)
     text = text.strip()
     text = repeat_normalize(text, num_repeats=2)
@@ -70,18 +70,15 @@ def get_komultitext_dataset():
     
     df_hug_dc["text"] = df_hug_dc["text"].apply(clean_text)
 
+    print(len(df_hug_dc[(df_hug_dc["text"].str.len() <= 3)]))
     df_hug_dc = Dataset.from_pandas(df_hug_dc)
 
     return df_hug_dc
 
 
-
 if __name__ == "__main__":
     df_nsmc = get_nsmc_dataset()
     df_hug_dc = get_komultitext_dataset()
-
-    print(df_nsmc)
-    print(df_nsmc.shape)
 
     print(df_hug_dc)
     print(df_hug_dc.shape)

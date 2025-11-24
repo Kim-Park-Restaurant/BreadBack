@@ -65,6 +65,7 @@ def search_best_hyperparameters(
         warmup_ratio=0.1,
         weight_decay=0.01,
         max_grad_norm=1.0,
+        lr_scheduler_type="linear",  # 학습률 스케줄러: linear, cosine, cosine_with_restarts 등
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
@@ -108,8 +109,10 @@ def train_ko_electra(model_name, best_run, output_dir, dataset):
         warmup_ratio=best_run.hyperparameters["warmup_ratio"],
         weight_decay=best_run.hyperparameters["weight_decay"],
         max_grad_norm=best_run.hyperparameters["max_grad_norm"],
+        lr_scheduler_type=best_run.hyperparameters.get("lr_scheduler_type", "linear"),  # 하이퍼파라미터에서 가져오거나 기본값 사용
         eval_strategy="epoch",
         save_strategy="epoch",
+        logging_steps=20,
         load_best_model_at_end=True,
         metric_for_best_model="eval_accuracy",
         report_to="wandb"  # 최종 학습 과정도 wandb에 기록
@@ -148,22 +151,22 @@ if __name__ == "__main__":
     #     num_epochs=default_epochs,
     #     batch_size=default_batch_size,
     #     learning_rate=default_learning_rate,
-    #     dataset=nsmc_dataset,
-    #     output_dir="./models/ko-electra-nsmc-hp-search"
+    #     dataset=komultitext_dataset,
+    #     output_dir="./huggingface_nsmc_train/ko-electra-komultitext-hp-search"
     # )
 
-    # train_ko_electra(model_name, best_run_nsmc, output_dir="./models/ko-electra-nsmc-final", dataset=nsmc_dataset)
+    # train_ko_electra(model_name, best_run_nsmc, output_dir="./huggingface_nsmc_train/ko-electra-komultitext-final", dataset=nsmc_dataset)
 
-    model_name = "./models/ko-electra-nsmc-final/checkpoint-1752"
+    model_name = "./huggingface_nsmc_train/ko-electra-komultitext-final/checkpoint-525"
     best_run_komultitext = search_best_hyperparameters(
         model_name=model_name,
         num_epochs=default_epochs,
         batch_size=default_batch_size,
         learning_rate=default_learning_rate,
-        dataset=komultitext_dataset,
-        output_dir="./models/ko-electra-komultitext-hp-search"
+        dataset=nsmc_dataset,
+        output_dir="./huggingface_nsmc_train/ko-electra-nsmc-hp-search"
     )
 
-    train_ko_electra(model_name, best_run_komultitext, output_dir="./models/ko-electra-komultitext-final", dataset=komultitext_dataset)
+    train_ko_electra(model_name, best_run_komultitext, output_dir="./huggingface_nsmc_train/ko-electra-nsmc-final", dataset=nsmc_dataset)
 
 

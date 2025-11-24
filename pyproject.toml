@@ -16,3 +16,7 @@ dependencies = [
     "wandb>=0.23.0",
     "weave>=0.52.17",
 ]
+
+[project.scripts]
+train-kcbert = "ai.kc_bert:main"
+train-koelectra = "ai.ko_electra:main"

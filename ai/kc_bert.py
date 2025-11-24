@@ -11,6 +11,7 @@ from datasets import DatasetDict
 
 import torch
 import numpy as np
+import os
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,14 +55,15 @@ def get_tokenized_datasets(tokenizer, dataset):
 
 
 def hp_space(trial):
-    return {
-        "learning_rate" : trial.suggest_float("learning_rate", 1e-6, 1e-5, log = True),
+    return {    
+        "learning_rate" : trial.suggest_float("learning_rate", 1e-5, 5e-5, log = True),
         "per_device_train_batch_size" : trial.suggest_categorical("per_device_train_batch_size", [8, 16]),
         "per_device_eval_batch_size" : trial.suggest_categorical("per_device_eval_batch_size", [8, 16]),
-        "num_train_epochs" : trial.suggest_int("num_train_epochs", 1, 8),
-        "weight_decay" : trial.suggest_float("weight_decay", 0.3, 0.5),
+        "num_train_epochs" : trial.suggest_int("num_train_epochs", 1, 3),
+        "weight_decay" : trial.suggest_float("weight_decay", 0.0, 0.1),
         "warmup_ratio" : trial.suggest_float("warmup_ratio", 0.0, 0.2),
-        "max_grad_norm" : trial.suggest_float("max_grad_norm", 0.5, 1.0)
+        "max_grad_norm" : trial.suggest_float("max_grad_norm", 0.5, 1.0),
+        "lr_scheduler_type" : trial.suggest_categorical("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts"])  # 스케줄러 타입도 탐색
     }
 
 
@@ -93,6 +95,7 @@ def search_best_hyperparameters(
         warmup_ratio=0.1,
         weight_decay=0.01,
         max_grad_norm=1.0,
+        lr_scheduler_type="linear",  # 학습률 스케줄러: linear, cosine, cosine_with_restarts 등
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
@@ -136,6 +139,10 @@ def compute_metrics(eval_pred):
 
 
 def train_kcbert(model_name, best_run, output_dir, dataset):
+    # 로컬 경로인 경우 절대 경로로 변환 (상대 경로 문제 해결)
+    if os.path.exists(model_name) and os.path.isdir(model_name):
+        model_name = os.path.abspath(model_name)
+    
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
@@ -153,10 +160,13 @@ def train_kcbert(model_name, best_run, output_dir, dataset):
         warmup_ratio=best_run.hyperparameters["warmup_ratio"],
         weight_decay=best_run.hyperparameters["weight_decay"],
         max_grad_norm=best_run.hyperparameters["max_grad_norm"],
+        lr_scheduler_type=best_run.hyperparameters.get("lr_scheduler_type", "linear"),  # 하이퍼파라미터에서 가져오거나 기본값 사용
         eval_strategy="epoch",
         save_strategy="epoch",
+        logging_steps=20,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_accuracy"
+        metric_for_best_model="eval_accuracy",
+        report_to="wandb"
     )   
 
     trainer = Trainer(
@@ -196,26 +206,26 @@ if __name__ == "__main__":
     #     num_epochs=default_num_epochs,
     #     batch_size=default_batch_size,
     #     learning_rate=default_learning_rate,
-    #     dataset=nsmc_dataset,
-    #     output_dir="./models/kc-bert-nsmc-hp-search"
+    #     dataset=komultitext_dataset,
+    #     output_dir="./huggingface_nsmc_train/kc-bert-komultitext-hp-search"
     # )
 
     # print(f"최적 하이퍼파라미터: {best_run_nsmc.hyperparameters}")
     # print(f"최적 성능: {best_run_nsmc.objective}")
-
-    # trainer = train_kcbert(model_name, best_run_nsmc, output_dir="./models/kc-bert-nsmc-final", dataset=nsmc_dataset)
+    # # TODO kcbert train
+    # trainer = train_kcbert(default_model_name, best_run_nsmc, output_dir="./huggingface_nsmc_train/kc-bert-komultitext-final", dataset=komultitext_dataset)
     
-    fine_tune_model_name = "./models/kc-bert-nsmc-final/checkpoint-440"
+    fine_tune_model_name = "./huggingface_nsmc_train/kc-bert-komultitext-final/checkpoint-194"
     best_run_komultitext = search_best_hyperparameters(
         model_name=fine_tune_model_name,
         num_epochs=default_num_epochs,
         batch_size=default_batch_size,
         learning_rate=default_learning_rate,
-        dataset=komultitext_dataset,
-        output_dir="./models/kc-bert-komultitext-hp-search"
+        dataset=nsmc_dataset,
+        output_dir="./huggingface_nsmc_train/kc-bert-nsmc-hp-search"
     )
 
     print(f"최적 하이퍼파라미터: {best_run_komultitext.hyperparameters}")
     print(f"최적 성능: {best_run_komultitext.objective}")
 
-    trainer = train_kcbert(fine_tune_model_name, best_run_komultitext, output_dir="./models/kc-bert-komultitext-final", dataset=komultitext_dataset)
+    trainer = train_kcbert(fine_tune_model_name, best_run_komultitext, output_dir="./huggingface_nsmc_train/kc-bert-nsmc-final", dataset=nsmc_dataset)
