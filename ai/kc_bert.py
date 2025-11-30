@@ -33,21 +33,42 @@ def preprocess_function(examples, tokenizer, max_length=512):
     return tokenized_text
 
 
-def get_tokenized_datasets(tokenizer, dataset):
-    tokenized_datasets = dataset.map(
+def get_tokenized_datasets(tokenizer, train_dataset, test_dataset=None, seed=42):
+    """
+    데이터셋을 토크나이징
+    
+    Args:
+        tokenizer: 토크나이저
+        train_dataset: 학습 데이터셋
+        test_dataset: 테스트 데이터셋 (None이면 train에서 분할)
+        seed: 랜덤 시드 (test_dataset이 None일 때만 사용)
+    """
+    # train 데이터 토크나이징
+    tokenized_train = train_dataset.map(
         preprocess_function, 
         batched=True,
         fn_kwargs={"tokenizer": tokenizer, "max_length": 128},
-        remove_columns=dataset.column_names
+        remove_columns=train_dataset.column_names
     )
-
-    train_val_split = tokenized_datasets.train_test_split(test_size=0.3, seed=42)
-    val_test_split = train_val_split["test"].train_test_split(test_size=0.5, seed=42)
+    
+    # test 데이터 처리
+    if test_dataset is not None:
+        # 별도로 전달된 test 데이터 토크나이징
+        tokenized_test = test_dataset.map(
+            preprocess_function,
+            batched=True,
+            fn_kwargs={"tokenizer": tokenizer, "max_length": 128},
+            remove_columns=test_dataset.column_names
+        )
+    else:
+        # test 데이터가 없으면 train에서 분할 (기존 동작 유지)
+        train_test_split = tokenized_train.train_test_split(test_size=0.2, seed=seed)
+        tokenized_train = train_test_split["train"]
+        tokenized_test = train_test_split["test"]
 
     tokenized_datasets = DatasetDict({
-        "train": train_val_split["train"],
-        "validation": val_test_split["train"],
-        "test": val_test_split["test"]
+        "train": tokenized_train,
+        "test": tokenized_test
     })
     print(tokenized_datasets)
 
@@ -72,12 +93,14 @@ def search_best_hyperparameters(
     num_epochs,
     batch_size,
     learning_rate,
-    dataset,
-    output_dir
+    train_dataset,
+    test_dataset,
+    output_dir,
+    seed=42
 ):
     tokenizer = AutoTokenizer.from_pretrained("beomi/kcbert-base")
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
+    tokenized_datasets = get_tokenized_datasets(tokenizer, train_dataset, test_dataset=test_dataset, seed=seed)
 
 
     def model_init():
@@ -106,7 +129,7 @@ def search_best_hyperparameters(
         model_init=model_init,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["validation"],
+        eval_dataset=tokenized_datasets["test"],  # test를 validation으로 사용
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
@@ -138,14 +161,14 @@ def compute_metrics(eval_pred):
     }
 
 
-def train_kcbert(model_name, best_run, output_dir, dataset):
+def train_kcbert(model_name, best_run, output_dir, train_dataset, test_dataset, seed=42):
     # 로컬 경로인 경우 절대 경로로 변환 (상대 경로 문제 해결)
     if os.path.exists(model_name) and os.path.isdir(model_name):
         model_name = os.path.abspath(model_name)
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
+    tokenized_datasets = get_tokenized_datasets(tokenizer, train_dataset, test_dataset=test_dataset, seed=seed)
 
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
     model.to(device)
@@ -173,17 +196,13 @@ def train_kcbert(model_name, best_run, output_dir, dataset):
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["validation"],
+        eval_dataset=tokenized_datasets["test"],  # test를 validation으로 사용
         data_collator=data_collator,
         compute_metrics=compute_metrics
     )   
     trainer.train()
 
     trainer.save_model()
-
-    # validation 데이터셋 평가
-    eval_results = trainer.evaluate()
-    print(f"Validation 평가 결과: {eval_results}")
 
     # test 데이터셋 평가
     test_results = trainer.evaluate(eval_dataset=tokenized_datasets["test"])
@@ -193,39 +212,52 @@ def train_kcbert(model_name, best_run, output_dir, dataset):
 
 
 if __name__ == "__main__":
-    default_model_name = "beomi/kcbert-base"
-    nsmc_dataset = get_nsmc_dataset()
+    from ai.shared_config import SHARED_SEED
+    
+    # 동일한 seed로 두 모델이 같은 데이터 사용
+    print(f"공유 seed: {SHARED_SEED}")
+    
+    # komultitext 데이터셋 로드 및 8:2 분할 (두 모델이 동일한 데이터 사용)
     komultitext_dataset = get_komultitext_dataset()
-
+    komultitext_split = komultitext_dataset.train_test_split(test_size=0.2, seed=SHARED_SEED)
+    komultitext_train = komultitext_split["train"]
+    komultitext_test = komultitext_split["test"]
+    
+    print(f"komultitext train 크기: {len(komultitext_train)}")
+    print(f"komultitext test 크기: {len(komultitext_test)}")
+    
     default_num_epochs = 3
     default_batch_size = 8
     default_learning_rate = 2e-5
-
-    # best_run_nsmc = search_best_hyperparameters(
-    #     model_name=default_model_name,
-    #     num_epochs=default_num_epochs,
-    #     batch_size=default_batch_size,
-    #     learning_rate=default_learning_rate,
-    #     dataset=komultitext_dataset,
-    #     output_dir="./huggingface_nsmc_train/kc-bert-komultitext-hp-search"
-    # )
-
-    # print(f"최적 하이퍼파라미터: {best_run_nsmc.hyperparameters}")
-    # print(f"최적 성능: {best_run_nsmc.objective}")
-    # # TODO kcbert train
-    # trainer = train_kcbert(default_model_name, best_run_nsmc, output_dir="./huggingface_nsmc_train/kc-bert-komultitext-final", dataset=komultitext_dataset)
     
-    fine_tune_model_name = "./huggingface_nsmc_train/kc-bert-komultitext-final/checkpoint-194"
-    best_run_komultitext = search_best_hyperparameters(
+    # kc_bert 학습
+    fine_tune_model_name = "./nsmc_huggingface_train/kc-bert-nsmc-final/checkpoint-350"
+    
+    print("\n" + "="*80)
+    print("KcBERT 하이퍼파라미터 검색")
+    print("="*80)
+    best_run_kcbert = search_best_hyperparameters(
         model_name=fine_tune_model_name,
         num_epochs=default_num_epochs,
         batch_size=default_batch_size,
         learning_rate=default_learning_rate,
-        dataset=nsmc_dataset,
-        output_dir="./huggingface_nsmc_train/kc-bert-nsmc-hp-search"
+        train_dataset=komultitext_train,  # train 데이터
+        test_dataset=komultitext_test,  # test 데이터
+        output_dir="./nsmc_huggingface_train/kc-bert-komultitext-hp-search",
+        seed=SHARED_SEED  # 공유 seed 사용
     )
 
-    print(f"최적 하이퍼파라미터: {best_run_komultitext.hyperparameters}")
-    print(f"최적 성능: {best_run_komultitext.objective}")
+    print(f"최적 하이퍼파라미터: {best_run_kcbert.hyperparameters}")
+    print(f"최적 성능: {best_run_kcbert.objective}")
 
-    trainer = train_kcbert(fine_tune_model_name, best_run_komultitext, output_dir="./huggingface_nsmc_train/kc-bert-nsmc-final", dataset=nsmc_dataset)
+    print("\n" + "="*80)
+    print("KcBERT 최종 학습")
+    print("="*80)
+    trainer_kcbert = train_kcbert(
+        fine_tune_model_name, 
+        best_run_kcbert, 
+        output_dir="./nsmc_huggingface_train/kc-bert-komultitext-final", 
+        train_dataset=komultitext_train,  # train 데이터
+        test_dataset=komultitext_test,  # test 데이터
+        seed=SHARED_SEED  # 공유 seed 사용
+    )

@@ -15,15 +15,6 @@ url_pattern = re.compile(
     r'https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)')
 
 
-def clean_text(text):
-    text = pattern.sub(' ', text)
-    # text = emoji.replace_emoji(text, replace='')
-    text = url_pattern.sub('', text)
-    text = text.strip()
-    text = repeat_normalize(text, num_repeats=2)
-    return text
-
-
 def get_nsmc_dataset():
     nsmc = load_dataset("Blpeng/nsmc")
 
@@ -68,9 +59,6 @@ def get_komultitext_dataset():
         df_pref_0_sampled = df_pref_0.sample(n=pref_1_count, random_state=42)
         df_hug_dc = pd.concat([df_pref_0_sampled, df_pref_1], ignore_index=True)
     
-    df_hug_dc["text"] = df_hug_dc["text"].apply(clean_text)
-
-    print(len(df_hug_dc[(df_hug_dc["text"].str.len() <= 3)]))
     df_hug_dc = Dataset.from_pandas(df_hug_dc)
 
     return df_hug_dc

@@ -42,12 +42,14 @@ def search_best_hyperparameters(
     num_epochs,
     batch_size,
     learning_rate,
-    dataset,
-    output_dir
+    train_dataset,
+    test_dataset,
+    output_dir,
+    seed=42
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
+    tokenized_datasets = get_tokenized_datasets(tokenizer, train_dataset, test_dataset=test_dataset, seed=seed)
 
     def model_init():
         model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2, trust_remote_code=True)
@@ -77,7 +79,7 @@ def search_best_hyperparameters(
         model_init=model_init,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["validation"],
+        eval_dataset=tokenized_datasets["test"],  # test를 validation으로 사용
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
@@ -92,10 +94,10 @@ def search_best_hyperparameters(
     return best_run
 
 
-def train_ko_electra(model_name, best_run, output_dir, dataset):
+def train_ko_electra(model_name, best_run, output_dir, train_dataset, test_dataset, seed=42):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    tokenized_datasets = get_tokenized_datasets(tokenizer, dataset)
+    tokenized_datasets = get_tokenized_datasets(tokenizer, train_dataset, test_dataset=test_dataset, seed=seed)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2, trust_remote_code=True)
     model.to(device)
 
@@ -122,7 +124,7 @@ def train_ko_electra(model_name, best_run, output_dir, dataset):
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["validation"],
+        eval_dataset=tokenized_datasets["test"],  # test를 validation으로 사용
         data_collator=data_collator,
         compute_metrics=compute_metrics
     )
@@ -130,43 +132,60 @@ def train_ko_electra(model_name, best_run, output_dir, dataset):
     trainer.train()
     trainer.save_model()
 
-    eval_results = trainer.evaluate()
-    print(f"Validation 평가 결과: {eval_results}")
-
+    # test 데이터셋 평가
     test_results = trainer.evaluate(eval_dataset=tokenized_datasets["test"])
     print(f"Test 평가 결과: {test_results}")
 
 
 if __name__ == "__main__":
-    model_name = "monologg/koelectra-base-v3-discriminator"
+    from ai.shared_config import SHARED_SEED
+    
+    # 동일한 seed로 두 모델이 같은 데이터 사용
+    print(f"공유 seed: {SHARED_SEED}")
+    
+    # komultitext 데이터셋 로드 및 8:2 분할 (두 모델이 동일한 데이터 사용)
+    komultitext_dataset = get_komultitext_dataset()
+    komultitext_split = komultitext_dataset.train_test_split(test_size=0.2, seed=SHARED_SEED)
+    komultitext_train = komultitext_split["train"]
+    komultitext_test = komultitext_split["test"]
+    
+    print(f"komultitext train 크기: {len(komultitext_train)}")
+    print(f"komultitext test 크기: {len(komultitext_test)}")
+    
     default_epochs = 3
     default_batch_size = 8
     default_learning_rate = 1e-5
-
-    nsmc_dataset = get_nsmc_dataset()
-    komultitext_dataset = get_komultitext_dataset()
-
-    # best_run_nsmc = search_best_hyperparameters(
-    #     model_name=model_name,
-    #     num_epochs=default_epochs,
-    #     batch_size=default_batch_size,
-    #     learning_rate=default_learning_rate,
-    #     dataset=komultitext_dataset,
-    #     output_dir="./huggingface_nsmc_train/ko-electra-komultitext-hp-search"
-    # )
-
-    # train_ko_electra(model_name, best_run_nsmc, output_dir="./huggingface_nsmc_train/ko-electra-komultitext-final", dataset=nsmc_dataset)
-
-    model_name = "./huggingface_nsmc_train/ko-electra-komultitext-final/checkpoint-525"
-    best_run_komultitext = search_best_hyperparameters(
-        model_name=model_name,
+    
+    # ko_electra 학습
+    fine_tune_model_name = "./nsmc_huggingface_train/ko-electra-nsmc-final/checkpoint-700"
+    
+    print("\n" + "="*80)
+    print("KoELECTRA 하이퍼파라미터 검색")
+    print("="*80)
+    best_run_ko_electra = search_best_hyperparameters(
+        model_name=fine_tune_model_name,
         num_epochs=default_epochs,
         batch_size=default_batch_size,
         learning_rate=default_learning_rate,
-        dataset=nsmc_dataset,
-        output_dir="./huggingface_nsmc_train/ko-electra-nsmc-hp-search"
+        train_dataset=komultitext_train,  # train 데이터
+        test_dataset=komultitext_test,  # test 데이터
+        output_dir="./nsmc_huggingface_train/ko-electra-komultitext-hp-search",
+        seed=SHARED_SEED  # 공유 seed 사용
     )
 
-    train_ko_electra(model_name, best_run_komultitext, output_dir="./huggingface_nsmc_train/ko-electra-nsmc-final", dataset=nsmc_dataset)
+    print(f"최적 하이퍼파라미터: {best_run_ko_electra.hyperparameters}")
+    print(f"최적 성능: {best_run_ko_electra.objective}")
+
+    print("\n" + "="*80)
+    print("KoELECTRA 최종 학습")
+    print("="*80)
+    train_ko_electra(
+        fine_tune_model_name, 
+        best_run_ko_electra, 
+        output_dir="./nsmc_huggingface_train/ko-electra-komultitext-final", 
+        train_dataset=komultitext_train,  # train 데이터
+        test_dataset=komultitext_test,  # test 데이터
+        seed=SHARED_SEED  # 공유 seed 사용
+    )
 
 

@@ -8,6 +8,7 @@ data/what_the.csv
 data/final_df.csv
 wandb/*
 
+train/*
 models/*
 nsmc_huggingface_train/*
 huggingface_nsmc_train/*
